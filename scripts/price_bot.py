@@ -4,26 +4,28 @@ TELEGRAM_BOT = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT = os.environ.get("TELEGRAM_CHAT_ID", "8006453460")
 
 def main():
-    msg = "signal bot connecting..."
+    msg = "connecting..."
     try:
-        headers = {"User-Agent": "Mozilla/5.0"}
+        headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
         r = requests.get(
-            "https://api.binance.com/api/v3/ticker/price",
-            params={"symbol": "BTCUSDT", "type": "MINI"},
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={"ids": "bitcoin", "vs_currencies": "usd", "include_24hr_change": "true"},
             headers=headers,
-            timeout=10,
+            timeout=15,
         )
-        print("status", r.status_code, "url", r.url)
+        print("status", r.status_code)
         data = r.json()
-        print("binance data", data)
-        price = data.get("price") or data.get("lastPrice") or ""
+        print("cg data", data)
+        btc = data.get("bitcoin", {})
+        price = btc.get("usd", "")
+        chg = btc.get("usd_24h_change", "")
         if price:
             ts = time.strftime("%H:%M UTC")
-            msg = f"BTC Binance: ${price} {ts}"
+            msg = f"BTC ${price:,.0f} ({chg:+.2f}%) {ts}"
         else:
-            msg = f"no price in binance resp: {str(data)[:200]}"
+            msg = f"no price: {str(data)[:200]}"
     except Exception as e:
-        msg = f"binance err: {e}"
+        msg = f"err: {e}"
         print(msg)
     if TELEGRAM_BOT:
         try:
@@ -34,7 +36,7 @@ def main():
             )
         except Exception as e:
             print("tg_err", e)
-    print(msg)
+    print("msg:", msg)
 
 if __name__ == "__main__":
     main()
