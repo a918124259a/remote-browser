@@ -1,0 +1,101 @@
+name: Trading Agent - Auto Monitor & Trade
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *'  # 每15分钟运行
+
+jobs:
+  monitor-trade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
+      BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      SOL_WALLET: ${{ secrets.SOL_WALLET }}
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          
+      - name: Install deps
+        run: pip install requests python-dotenv -q
+        
+      - name: Fetch BTC Price
+        id: price
+        run: |
+          python3 << 'PYEOF'
+import requests, json, sys
+
+# Get BTC price from Binance (no auth needed)
+try:
+    r = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT", timeout=10)
+    price = r.json()["price"]
+    print(f"BTC_PRICE={price}")
+    print(f"price={price}" >> sys.stdout)
+    # Write to GITHUB_OUTPUT
+    with open("/tmp/price.txt", "w") as f:
+        f.write(price)
+except Exception as e:
+    print(f"ERROR={e}")
+    sys.exit(1)
+PYEOF
+          BTC_PRICE=$(cat /tmp/price.txt)
+          echo "btc_price=$BTC_PRICE" >> "$GITHUB_OUTPUT"
+          
+      - name: Check Account Balance
+        if: env.BINANCE_API_KEY != ''
+        id: balance
+        run: |
+          python3 << 'PYEOF'
+import requests, time, hmac, hashlib, os, sys
+
+api_key = os.environ.get('BINANCE_API_KEY', '')
+api_secret = os.environ.get('BINANCE_API_SECRET', '')
+
+if not api_key:
+    print("no_key=1")
+    sys.exit(0)
+
+ts = int(time.time() * 1000)
+qs = f'timestamp={ts}&recvWindow=5000'
+sig = hmac.new(api_secret.encode(), qs.encode(), hashlib.sha256).hexdigest()
+url = f'https://api.binance.com/api/v3/account?{qs}&signature={sig}'
+r = requests.get(url, headers={'X-MBX-APIKEY': api_key}, timeout=15)
+
+if r.status_code == 200:
+    data = r.json()
+    nonzero = [a for a in data.get('balances', []) 
+               if float(a.get('free', 0)) > 0.001 or float(a.get('locked', 0)) > 0.001]
+    result = json.dumps(nonzero[:10]) if nonzero else "[]"
+    print(f"has_balance=1")
+    print(f"balance_json={result}")
+else:
+    print(f"balance_error={r.text[:200]}")
+PYEOF
+
+      - name: Notify via Telegram
+        if: always()
+        run: |
+          python3 << 'PYEOF'
+import os, requests
+
+bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+chat_id = os.environ.get('TELEGRAM_CHAT_ID', '8006453460')
+btc_price = os.environ.get('INPUT_BTCE_PRICE', '$N/A')
+balance_status = os.environ.get('INPUT_BALANCE_JSON', 'checking...')
+
+msg = f"🤖 Trading Agent Report\n\nBTC: {btc_price}\nBalances: {balance_status}\nURL: https://a918124259a.github.io/remote-browser/"
+
+if bot_token:
+    try:
+        requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", 
+                      json={"chat_id": chat_id, "text": msg}, timeout=10)
+    except:
+        pass
+PYEOF

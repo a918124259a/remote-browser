@@ -1,0 +1,59 @@
+name: Remote Browser Proxy
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "URL to fetch via GitHub's network"
+        required: true
+        type: string
+      method:
+        description: "HTTP method"
+        required: false
+        default: "GET"
+        type: choice
+        options: [GET, POST]
+      body:
+        description: "Request body (JSON string)"
+        required: false
+        type: string
+      headers:
+        description: "Extra headers (JSON string, e.g. {"Authorization":"Bearer xyz"})"
+        required: false
+        type: string
+  issue_comment:
+    types: [created]
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch URL
+        run: |
+          METHOD="${{ github.event.inputs.method || 'GET' }}"
+          URL="${{ github.event.inputs.url }}"
+          HEADERS="${{ github.event.inputs.headers || '{}' }}"
+          BODY="${{ github.event.inputs.body || '' }}"
+          
+          echo "::debug::URL=$URL"
+          
+          # Build curl args
+          if [ "$METHOD" = "POST" ]; then
+            RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" \
+              $(echo "$HEADERS" | jq -r 'to_entries|map("-H \""+.key+": "+.value+"\"")|.[]' 2>/dev/null || echo "") \
+              -d "$BODY" \
+              -w "\nHTTP_STATUS:%{http_code}" \
+              "$URL" 2>&1)
+          else
+            RESPONSE=$(curl -s -L \
+              $(echo "$HEADERS" | jq -r 'to_entries|map("-H \""+.key+": "+.value+"\"")|.[]' 2>/dev/null || echo "") \
+              -w "\nHTTP_STATUS:%{http_code}" \
+              "$URL" 2>&1)
+          fi
+          
+          HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | tail -1 | sed 's/HTTP_STATUS://')
+          BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
+          
+          echo "HTTP_CODE=$HTTP_CODE" >> "$GITHUB_OUTPUT"
+          echo "BODY<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$BODY" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
