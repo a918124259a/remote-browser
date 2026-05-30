@@ -3,11 +3,14 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '* * * * *'
-
 jobs:
   fetch:
     runs-on: ubuntu-latest
     steps:
-      - name: Get OKX BTC Price
-        run: |
-          curl -s "https://www.okx.com/api/v5/market/ticker?instId=BTC-USDT" | jq '.data[0].last'
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          python3 -c "import requests,os,time;bot=os.environ.get('TELEGRAM_BOT_TOKEN','');chat=os.environ.get('TELEGRAM_CHAT_ID','8006453460');price=None;try:price=requests.get('https://www.okx.com/api/v5/market/ticker?instId=BTC-USDT',timeout=10).json()['data'][0]['last'];except:pass;print('PRICE',price);"
+          python3 -c "import requests,os,time;bot=os.environ.get('TELEGRAM_BOT_TOKEN','');chat=os.environ.get('TELEGRAM_CHAT_ID','8006453460');price=requests.get('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT',timeout=10).json()['price'];requests.post('https://api.telegram.org/bot'+bot+'/sendMessage',json={'chat_id':chat,'text':'BTC OKX: $'+price+' '+time.strftime('%H:%M UTC')},timeout=10)" 
