@@ -3,57 +3,74 @@ on:
   workflow_dispatch:
     inputs:
       url:
-        description: "URL to fetch via GitHub's network"
+        description: "URL to fetch"
         required: true
         type: string
       method:
         description: "HTTP method"
         required: false
         default: "GET"
-        type: choice
-        options: [GET, POST]
       body:
-        description: "Request body (JSON string)"
+        description: "Request body JSON"
         required: false
         type: string
-      headers:
-        description: "Extra headers (JSON string, e.g. {"Authorization":"Bearer xyz"})"
+      headers_json:
+        description: "Extra headers JSON"
         required: false
         type: string
-  issue_comment:
-    types: [created]
 
 jobs:
   fetch:
     runs-on: ubuntu-latest
+    outputs:
+      http_code: ${{ steps.run.outputs.http_code }}
+      body: ${{ steps.run.outputs.body }}
     steps:
+      - name: Install jq
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq jq
+
       - name: Fetch URL
+        id: run
         run: |
-          METHOD="${{ github.event.inputs.method || 'GET' }}"
+          set -e
+          
           URL="${{ github.event.inputs.url }}"
-          HEADERS="${{ github.event.inputs.headers || '{}' }}"
-          BODY="${{ github.event.inputs.body || '' }}"
+          METHOD="${{ github.event.inputs.method }}"
+          BODY="${{ github.event.inputs.body }}"
+          HDRS="${{ github.event.inputs.headers_json }}"
           
-          echo "::debug::URL=$URL"
+          echo "URL=$URL"
           
-          # Build curl args
+          # Build header args
+          EXTRA_HDRS=""
+          if [ -n "$HDRS" ] && [ "$HDRS" != "null" ]; then
+            EXTRA_HDRS=$(echo "$HDRS" | jq -r 'to_entries|map("-H \"\\(.key): \\(.value)\"")|.[]' 2>/dev/null || echo "")
+          fi
+          
+          # Fetch
           if [ "$METHOD" = "POST" ]; then
-            RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" \
-              $(echo "$HEADERS" | jq -r 'to_entries|map("-H \""+.key+": "+.value+"\"")|.[]' 2>/dev/null || echo "") \
+            RESPONSE=$(curl -s -X POST \
+              -H "Content-Type: application/json" \
+              $EXTRA_HDRS \
               -d "$BODY" \
               -w "\nHTTP_STATUS:%{http_code}" \
               "$URL" 2>&1)
           else
             RESPONSE=$(curl -s -L \
-              $(echo "$HEADERS" | jq -r 'to_entries|map("-H \""+.key+": "+.value+"\"")|.[]' 2>/dev/null || echo "") \
+              $EXTRA_HDRS \
               -w "\nHTTP_STATUS:%{http_code}" \
               "$URL" 2>&1)
           fi
           
           HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | tail -1 | sed 's/HTTP_STATUS://')
-          BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
+          BODY_DATA=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
           
-          echo "HTTP_CODE=$HTTP_CODE" >> "$GITHUB_OUTPUT"
-          echo "BODY<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$BODY" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "http_code=$HTTP_CODE" >> "$GITHUB_OUTPUT"
+          echo "body<<EOFPOST" >> "$GITHUB_OUTPUT"
+          echo "$BODY_DATA" >> "$GITHUB_OUTPUT"
+          echo "EOFPOST" >> "$GITHUB_OUTPUT"
+          
+          echo "HTTP_CODE=$HTTP_CODE"
+          echo "BODY_START"
+          echo "$BODY_DATA"
+          echo "BODY_END"
