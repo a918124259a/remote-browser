@@ -11,6 +11,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: |
-          python3 -c "import requests,os,time;r=requests.get('https://www.okx.com/api/v5/market/ticker?instId=BTC-USDT',timeout=10);price=r.json()['data'][0]['last'];print('PRICE',price);"
-          python3 -c "import requests,os,time;bot=os.environ.get('TELEGRAM_BOT_TOKEN','');chat=os.environ.get('TELEGRAM_CHAT_ID','8006453460');r=requests.get('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT',timeout=10);price=r.json()['price'];requests.post('https://api.telegram.org/bot'+bot+'/sendMessage',json={'chat_id':chat,'text':'BTC OKX: $'+str(price)+' '+time.strftime('%H:%M UTC')},timeout=10)"
+      - run: pip install requests -q
+      - run: python3 scripts/price_bot.py
