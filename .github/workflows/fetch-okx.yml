@@ -1,0 +1,13 @@
+name: Fetch OKX Price
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '* * * * *'
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get OKX BTC Price
+        run: |
+          curl -s "https://www.okx.com/api/v5/market/ticker?instId=BTC-USDT" | jq '.data[0].last'
